@@ -9,10 +9,6 @@ interface DashboardState {
   detailedBlocks: DetailedBlockInfo[]
 }
 
-function shortHash(hash: string): string {
-  return `${hash.slice(0, 10)}...${hash.slice(-8)}`
-}
-
 function formatDate(timestamp: number): string {
   return new Date(timestamp * 1000).toLocaleString()
 }
@@ -33,7 +29,7 @@ export function DashboardPage() {
         const message =
           loadError instanceof Error
             ? loadError.message
-            : "Nieznany blad podczas pobierania blokow"
+            : "Unknown error during fetching data"
         setError(message)
       } finally {
         setLoading(false)
@@ -63,13 +59,13 @@ export function DashboardPage() {
 
         {loading && (
           <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 text-slate-300">
-            Ladowanie ostatnich 100 blokow...
+            Fetching blocks...
           </section>
         )}
 
         {error && (
           <section className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-5 text-rose-200">
-            Nie udalo sie pobrac danych z RPC: {error}
+            Failed to fetch data from RPC: {error}
           </section>
         )}
 
@@ -77,7 +73,7 @@ export function DashboardPage() {
           <section className="grid gap-4 md:grid-cols-3">
             <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
               <p className="text-xs uppercase tracking-wide text-slate-400">
-                Najnowszy blok
+                Latest block
               </p>
               <p className="mt-1 text-xl font-semibold text-slate-100">
                 #{stats.latestBlock.toLocaleString()}
@@ -85,7 +81,7 @@ export function DashboardPage() {
             </article>
             <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
               <p className="text-xs uppercase tracking-wide text-slate-400">
-                Suma transakcji (100 blokow)
+                Transaction sum (100 blocks)
               </p>
               <p className="mt-1 text-xl font-semibold text-slate-100">
                 {stats.totalTransactions.toLocaleString()}
@@ -93,7 +89,7 @@ export function DashboardPage() {
             </article>
             <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
               <p className="text-xs uppercase tracking-wide text-slate-400">
-                Srednia TX / blok
+                Avg TX per block
               </p>
               <p className="mt-1 text-xl font-semibold text-slate-100">
                 {stats.averageTxCount.toLocaleString()}
@@ -104,17 +100,14 @@ export function DashboardPage() {
 
         {data && (
           <section className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-            <h2 className="text-lg font-semibold text-slate-100">
-              Ostatnie 100 blokow (podstawowe informacje)
-            </h2>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[880px] text-left text-sm">
                 <thead className="text-slate-400">
                   <tr className="border-b border-slate-800">
-                    <th className="px-2 py-2 font-medium">Blok</th>
+                    <th className="px-2 py-2 font-medium">Block</th>
                     <th className="px-2 py-2 font-medium">Hash</th>
                     <th className="px-2 py-2 font-medium">Timestamp</th>
-                    <th className="px-2 py-2 font-medium">Liczba TX</th>
+                    <th className="px-2 py-2 font-medium">TX Count</th>
                     <th className="px-2 py-2 font-medium">Gas used</th>
                   </tr>
                 </thead>
@@ -125,7 +118,7 @@ export function DashboardPage() {
                         #{block.number.toLocaleString()}
                       </td>
                       <td className="px-2 py-2 font-mono text-xs text-slate-300">
-                        {shortHash(block.hash)}
+                        {block.hash}
                       </td>
                       <td className="px-2 py-2 text-slate-300">
                         {formatDate(block.timestamp)}
@@ -147,7 +140,7 @@ export function DashboardPage() {
         {data && (
           <section className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
             <h2 className="text-lg font-semibold text-slate-100">
-              Ostatnie 10 blokow (szczegolowe informacje)
+              Latest 10 blocks (detailed info)
             </h2>
             <div className="space-y-3">
               {data.detailedBlocks.map((block) => (
@@ -158,19 +151,19 @@ export function DashboardPage() {
                   <summary className="cursor-pointer text-sm font-medium text-slate-100">
                     Blok #{block.number.toLocaleString()} | TX:{" "}
                     {block.transactionCount.toLocaleString()} | Hash:{" "}
-                    {shortHash(block.hash)}
+                    {block.hash}
                   </summary>
                   <div className="mt-3 grid gap-2 text-sm text-slate-300 md:grid-cols-2">
                     <p>
                       <span className="text-slate-400">Parent hash:</span>{" "}
                       <span className="font-mono text-xs">
-                        {shortHash(block.parentHash)}
+                        {block.parentHash}
                       </span>
                     </p>
                     <p>
                       <span className="text-slate-400">Miner:</span>{" "}
                       <span className="font-mono text-xs">
-                        {shortHash(block.miner)}
+                        {block.miner}
                       </span>
                     </p>
                     <p>
@@ -195,7 +188,7 @@ export function DashboardPage() {
 
                   <div className="mt-3 overflow-x-auto">
                     <p className="mb-2 text-xs uppercase tracking-wide text-slate-400">
-                      Transakcje w bloku
+                      Inblock transactions
                     </p>
                     <table className="w-full min-w-[780px] text-left text-xs">
                       <thead className="text-slate-500">
@@ -212,13 +205,13 @@ export function DashboardPage() {
                         {block.transactions.map((tx) => (
                           <tr key={tx.hash} className="border-b border-slate-900/80">
                             <td className="px-2 py-1.5 font-mono text-slate-300">
-                              {shortHash(tx.hash)}
+                              {tx.hash}
                             </td>
                             <td className="px-2 py-1.5 font-mono text-slate-300">
-                              {shortHash(tx.from)}
+                              {tx.from}
                             </td>
                             <td className="px-2 py-1.5 font-mono text-slate-300">
-                              {tx.to ? shortHash(tx.to) : "contract creation"}
+                              {tx.to ? tx.to : "contract creation"}
                             </td>
                             <td className="px-2 py-1.5 font-mono text-slate-300">
                               {tx.valueWei}
