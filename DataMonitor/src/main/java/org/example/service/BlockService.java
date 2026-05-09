@@ -1,10 +1,12 @@
 package org.example.service;
 
+import org.example.api.RecentBlocksResponse;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.methods.response.EthBlock;
 
 import java.io.IOException;
 import java.math.BigInteger;
+import java.util.ArrayList;
 import java.util.List;
 
 public class BlockService {
@@ -59,5 +61,91 @@ public class BlockService {
         return transaction.getGas().toString();
     }
 
+    public RecentBlocksResponse getRecentBlocks(int basicCount, int detailedCount) throws IOException, InterruptedException {
+        int safeBasicCount = Math.max(1, basicCount);
+        int safeDetailedCount = Math.max(1, detailedCount);
+        int actualDetailedCount = Math.min(safeBasicCount, safeDetailedCount);
+
+        BigInteger latest = getLatestBlock();
+        List<RecentBlocksResponse.BasicBlockInfo> basicBlocks = new ArrayList<RecentBlocksResponse.BasicBlockInfo>();
+        List<RecentBlocksResponse.DetailedBlockInfo> detailedBlocks = new ArrayList<RecentBlocksResponse.DetailedBlockInfo>();
+
+        for (int i = 0; i < safeBasicCount; i++) {
+            BigInteger blockNumber = latest.subtract(BigInteger.valueOf(i));
+            EthBlock.Block basicBlock = web3j.ethGetBlockByNumber(
+                    org.web3j.protocol.core.DefaultBlockParameter.valueOf(blockNumber),
+                    false
+            ).send().getBlock();
+            basicBlocks.add(mapBasicBlock(basicBlock));
+        }
+
+        for (int i = 0; i < actualDetailedCount; i++) {
+            BigInteger blockNumber = latest.subtract(BigInteger.valueOf(i));
+            EthBlock.Block detailedBlock = web3j.ethGetBlockByNumber(
+                    org.web3j.protocol.core.DefaultBlockParameter.valueOf(blockNumber),
+                    true
+            ).send().getBlock();
+            detailedBlocks.add(mapDetailedBlock(detailedBlock));
+        }
+
+        return new RecentBlocksResponse(latest.longValue(), basicBlocks, detailedBlocks);
+    }
+
+    private RecentBlocksResponse.BasicBlockInfo mapBasicBlock(EthBlock.Block block) throws IOException, InterruptedException {
+        return new RecentBlocksResponse.BasicBlockInfo(
+                Long.parseLong(getBlockNumber(block)),
+                getBlockHash(block),
+                block.getTimestamp().longValue(),
+                Integer.parseInt(getBlockTransactionCount(block)),
+                block.getGasUsed().longValue()
+        );
+    }
+
+    private RecentBlocksResponse.DetailedBlockInfo mapDetailedBlock(EthBlock.Block block) throws IOException, InterruptedException {
+        List<RecentBlocksResponse.DetailedTransactionInfo> transactions =
+                new ArrayList<RecentBlocksResponse.DetailedTransactionInfo>();
+
+        List<EthBlock.TransactionResult> transactionResults = getTransactionsList(block);
+        for (int i = 0; i < transactionResults.size(); i++) {
+            try {
+                EthBlock.TransactionObject tx = getSingleTransaction(transactionResults, i);
+                transactions.add(
+                        new RecentBlocksResponse.DetailedTransactionInfo(
+                                getSingleTransactionHash(tx),
+                                getSingleTransactionSender(tx),
+                                getSingleTransactionReceiver(tx),
+                                getSingleTransactionValue(tx),
+                                Long.parseLong(getSingleTransactionGas(tx)),
+                                tx.getGasPrice().toString()
+                        )
+                );
+            } catch (ClassCastException ignored) {
+                // Ignore non-object transactions.
+            }
+        }
+
+        String baseFee;
+
+        if (block.getBaseFeePerGas() == null) {
+            baseFee = null;
+        } else {
+            baseFee = block.getBaseFeePerGas().toString();
+        }
+
+        return new RecentBlocksResponse.DetailedBlockInfo(
+                Long.parseLong(getBlockNumber(block)),
+                getBlockHash(block),
+                block.getTimestamp().longValue(),
+                Integer.parseInt(getBlockTransactionCount(block)),
+                block.getGasUsed().longValue(),
+                block.getParentHash(),
+                block.getMiner(),
+                block.getNonceRaw(),
+                block.getSize().longValue(),
+                block.getGasLimit().longValue(),
+                baseFee,
+                transactions
+        );
+    }
 
 }
