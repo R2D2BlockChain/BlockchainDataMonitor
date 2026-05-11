@@ -4,45 +4,48 @@ import org.example.api.RecentBlocksResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.web3j.protocol.Web3j;
-import org.web3j.protocol.core.DefaultBlockParameter;
+import org.web3j.protocol.Web3jService;
 import org.web3j.protocol.core.Request;
+import org.web3j.protocol.core.Response;
 import org.web3j.protocol.core.methods.response.EthBlock;
-import org.web3j.protocol.core.methods.response.EthBlockNumber;
 
 import java.io.IOException;
 import java.math.BigInteger;
-import java.util.Arrays;
+import java.util.ArrayDeque;
 import java.util.List;
+import java.util.Queue;
 
+import static org.example.service.Web3jTestData.block;
+import static org.example.service.Web3jTestData.ethBlock;
+import static org.example.service.Web3jTestData.ethBlockNumber;
+import static org.example.service.Web3jTestData.transaction;
+import static org.example.service.Web3jTestData.transactionHash;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.eq;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
-import static org.mockito.Mockito.any;
 
 class BlockServiceTest {
 
-    private Web3j web3j;
+    private final Queue<Response<?>> rpcResponses = new ArrayDeque<Response<?>>();
+    private Web3jService web3jService;
     private BlockService blockService;
 
     @BeforeEach
-    void setUp() {
-        web3j = mock(Web3j.class);
-        blockService = new BlockService(web3j);
+    void setUp() throws IOException {
+        web3jService = mock(Web3jService.class);
+        when(web3jService.send(any(Request.class), any())).thenAnswer(invocation -> {
+            Class<?> responseType = invocation.getArgument(1);
+            return responseType.cast(rpcResponses.remove());
+        });
+        blockService = new BlockService(Web3j.build(web3jService));
     }
 
     @Test
     void shouldReturnLatestBlockNumberFromWeb3j() throws IOException, InterruptedException {
-        @SuppressWarnings("unchecked")
-        Request<?, EthBlockNumber> request = (Request<?, EthBlockNumber>) mock(Request.class);
-        EthBlockNumber ethBlockNumber = mock(EthBlockNumber.class);
-
-        doReturn(request).when(web3j).ethBlockNumber();
-        when(request.send()).thenReturn(ethBlockNumber);
-        when(ethBlockNumber.getBlockNumber()).thenReturn(BigInteger.valueOf(12345));
+        rpcResponses.add(ethBlockNumber(12345));
 
         BigInteger result = blockService.getLatestBlock();
 
@@ -51,9 +54,7 @@ class BlockServiceTest {
 
     @Test
     void shouldReadBasicBlockFields() throws IOException, InterruptedException {
-        EthBlock.Block block = mock(EthBlock.Block.class);
-        when(block.getNumber()).thenReturn(BigInteger.valueOf(100));
-        when(block.getHash()).thenReturn("0xabc123");
+        EthBlock.Block block = block(100, "0xabc123", List.of(), null);
 
         assertEquals("100", blockService.getBlockNumber(block));
         assertEquals("0xabc123", blockService.getBlockHash(block));
@@ -61,13 +62,12 @@ class BlockServiceTest {
 
     @Test
     void shouldReturnTransactionCountFromBlock() throws IOException, InterruptedException {
-        EthBlock.Block block = mock(EthBlock.Block.class);
-        List<EthBlock.TransactionResult> transactions = List.of(
-                mock(EthBlock.TransactionResult.class),
-                mock(EthBlock.TransactionResult.class),
-                mock(EthBlock.TransactionResult.class)
+        EthBlock.Block block = block(
+                100,
+                "0xabc123",
+                List.of(transactionHash("0x1"), transactionHash("0x2"), transactionHash("0x3")),
+                null
         );
-        when(block.getTransactions()).thenReturn(transactions);
 
         String result = blockService.getBlockTransactionCount(block);
 
@@ -76,8 +76,7 @@ class BlockServiceTest {
 
     @Test
     void shouldReturnZeroTransactionCountForEmptyList() throws IOException, InterruptedException {
-        EthBlock.Block block = mock(EthBlock.Block.class);
-        when(block.getTransactions()).thenReturn(List.of());
+        EthBlock.Block block = block(100, "0xabc123", List.of(), null);
 
         String result = blockService.getBlockTransactionCount(block);
 
@@ -86,9 +85,8 @@ class BlockServiceTest {
 
     @Test
     void shouldReturnTransactionsListFromBlock() throws IOException, InterruptedException {
-        EthBlock.Block block = mock(EthBlock.Block.class);
-        List<EthBlock.TransactionResult> transactions = List.of(mock(EthBlock.TransactionResult.class));
-        when(block.getTransactions()).thenReturn(transactions);
+        List<EthBlock.TransactionResult> transactions = List.of(transactionHash("0x1"));
+        EthBlock.Block block = block(100, "0xabc123", transactions, null);
 
         List<EthBlock.TransactionResult> result = blockService.getTransactionsList(block);
 
@@ -97,7 +95,7 @@ class BlockServiceTest {
 
     @Test
     void shouldReturnSingleTransactionByIndex() throws IOException, InterruptedException {
-        EthBlock.TransactionObject tx = mock(EthBlock.TransactionObject.class);
+        EthBlock.TransactionObject tx = transaction("0xhash", "0xfrom", "0xto", 50, 21000, 10);
         List<EthBlock.TransactionResult> transactions = List.of(tx);
 
         EthBlock.TransactionObject result = blockService.getSingleTransaction(transactions, 0);
@@ -107,7 +105,7 @@ class BlockServiceTest {
 
     @Test
     void shouldThrowForInvalidTransactionIndex() {
-        EthBlock.TransactionObject tx = mock(EthBlock.TransactionObject.class);
+        EthBlock.TransactionObject tx = transaction("0xhash", "0xfrom", "0xto", 50, 21000, 10);
         List<EthBlock.TransactionResult> transactions = List.of(tx);
 
         assertThrows(IndexOutOfBoundsException.class, () -> blockService.getSingleTransaction(transactions, 10));
@@ -115,8 +113,7 @@ class BlockServiceTest {
 
     @Test
     void shouldThrowWhenTransactionHasUnexpectedType() {
-        EthBlock.TransactionResult<String> invalid = mock(EthBlock.TransactionResult.class);
-        List<EthBlock.TransactionResult> transactions = List.of(invalid);
+        List<EthBlock.TransactionResult> transactions = List.of(transactionHash("0xhash"));
 
         assertThrows(ClassCastException.class, () -> blockService.getSingleTransaction(transactions, 0));
     }
@@ -133,12 +130,7 @@ class BlockServiceTest {
 
     @Test
     void shouldReturnSingleTransactionFieldsAsStrings() throws IOException, InterruptedException {
-        EthBlock.TransactionObject tx = mock(EthBlock.TransactionObject.class);
-        when(tx.getHash()).thenReturn("0xhash");
-        when(tx.getFrom()).thenReturn("0xfrom");
-        when(tx.getTo()).thenReturn("0xto");
-        when(tx.getValue()).thenReturn(BigInteger.valueOf(50));
-        when(tx.getGas()).thenReturn(BigInteger.valueOf(21000));
+        EthBlock.TransactionObject tx = transaction("0xhash", "0xfrom", "0xto", 50, 21000, 10);
 
         assertEquals("0xhash", blockService.getSingleTransactionHash(tx));
         assertEquals("0xfrom", blockService.getSingleTransactionSender(tx));
@@ -149,15 +141,15 @@ class BlockServiceTest {
 
     @Test
     void shouldBuildRecentBlocksResponseForBasicAndDetailedBlocks() throws IOException, InterruptedException {
-        mockLatestBlock(200);
+        EthBlock.TransactionObject tx = transaction("0xtx", "0xfrom", "0xto", 12, 21000, 50);
+        EthBlock.Block block200Basic = block(200, "0xblock200", List.of(), null);
+        EthBlock.Block block199Basic = block(199, "0xblock199", List.of(), null);
+        EthBlock.Block block200Detailed = block(200, "0xblock200", List.of(tx), BigInteger.valueOf(1000));
 
-        EthBlock.TransactionObject tx = mockTransaction("0xtx", "0xfrom", "0xto", 12, 21000, 50);
-        EthBlock.Block block200Basic = mockBlock(200, "0xblock200", List.of(), null);
-        EthBlock.Block block199Basic = mockBlock(199, "0xblock199", List.of(), null);
-        EthBlock.Block block200Detailed = mockBlock(200, "0xblock200", List.of(tx), BigInteger.valueOf(1000));
-
-        mockBlockRequest(false, block200Basic, block199Basic);
-        mockBlockRequest(true, block200Detailed);
+        rpcResponses.add(ethBlockNumber(200));
+        rpcResponses.add(ethBlock(block200Basic));
+        rpcResponses.add(ethBlock(block199Basic));
+        rpcResponses.add(ethBlock(block200Detailed));
 
         RecentBlocksResponse response = blockService.getRecentBlocks(2, 1);
 
@@ -172,12 +164,12 @@ class BlockServiceTest {
 
     @Test
     void shouldUseAtLeastOneBlockWhenCountsAreTooSmall() throws IOException, InterruptedException {
-        mockLatestBlock(300);
-        EthBlock.Block basicBlock = mockBlock(300, "0xblock300", List.of(), null);
-        EthBlock.Block detailedBlock = mockBlock(300, "0xblock300", List.of(), null);
+        EthBlock.Block basicBlock = block(300, "0xblock300", List.of(), null);
+        EthBlock.Block detailedBlock = block(300, "0xblock300", List.of(), null);
 
-        mockBlockRequest(false, basicBlock);
-        mockBlockRequest(true, detailedBlock);
+        rpcResponses.add(ethBlockNumber(300));
+        rpcResponses.add(ethBlock(basicBlock));
+        rpcResponses.add(ethBlock(detailedBlock));
 
         RecentBlocksResponse response = blockService.getRecentBlocks(0, -5);
 
@@ -189,12 +181,12 @@ class BlockServiceTest {
 
     @Test
     void shouldNotCreateMoreDetailedBlocksThanBasicBlocks() throws IOException, InterruptedException {
-        mockLatestBlock(400);
-        EthBlock.Block basicBlock = mockBlock(400, "0xblock400", List.of(), null);
-        EthBlock.Block detailedBlock = mockBlock(400, "0xblock400", List.of(), null);
+        EthBlock.Block basicBlock = block(400, "0xblock400", List.of(), null);
+        EthBlock.Block detailedBlock = block(400, "0xblock400", List.of(), null);
 
-        mockBlockRequest(false, basicBlock);
-        mockBlockRequest(true, detailedBlock);
+        rpcResponses.add(ethBlockNumber(400));
+        rpcResponses.add(ethBlock(basicBlock));
+        rpcResponses.add(ethBlock(detailedBlock));
 
         RecentBlocksResponse response = blockService.getRecentBlocks(1, 10);
 
@@ -204,22 +196,20 @@ class BlockServiceTest {
 
     @Test
     void shouldSkipHashOnlyTransactionsInDetailedBlock() throws IOException, InterruptedException {
-        mockLatestBlock(500);
+        EthBlock.TransactionHash hashOnlyTransaction = transactionHash("0xhashOnly");
+        EthBlock.TransactionObject normalTransaction = transaction("0xnormal", "0xfrom", "0xto", 15, 22000, 60);
 
-        @SuppressWarnings("unchecked")
-        EthBlock.TransactionResult<String> hashOnlyTransaction = mock(EthBlock.TransactionResult.class);
-        EthBlock.TransactionObject normalTransaction = mockTransaction("0xnormal", "0xfrom", "0xto", 15, 22000, 60);
-
-        EthBlock.Block basicBlock = mockBlock(500, "0xblock500", List.of(), null);
-        EthBlock.Block detailedBlock = mockBlock(
+        EthBlock.Block basicBlock = block(500, "0xblock500", List.of(), null);
+        EthBlock.Block detailedBlock = block(
                 500,
                 "0xblock500",
                 List.of(hashOnlyTransaction, normalTransaction),
                 null
         );
 
-        mockBlockRequest(false, basicBlock);
-        mockBlockRequest(true, detailedBlock);
+        rpcResponses.add(ethBlockNumber(500));
+        rpcResponses.add(ethBlock(basicBlock));
+        rpcResponses.add(ethBlock(detailedBlock));
 
         RecentBlocksResponse response = blockService.getRecentBlocks(1, 1);
 
@@ -230,87 +220,8 @@ class BlockServiceTest {
 
     @Test
     void shouldPassIOExceptionFromBlockchainClient() throws IOException {
-        @SuppressWarnings("unchecked")
-        Request<?, EthBlockNumber> request = (Request<?, EthBlockNumber>) mock(Request.class);
-
-        doReturn(request).when(web3j).ethBlockNumber();
-        when(request.send()).thenThrow(new IOException("rpc problem"));
+        when(web3jService.send(any(Request.class), any())).thenThrow(new IOException("rpc problem"));
 
         assertThrows(IOException.class, () -> blockService.getRecentBlocks(1, 1));
-    }
-
-    private void mockLatestBlock(long number) throws IOException {
-        @SuppressWarnings("unchecked")
-        Request<?, EthBlockNumber> request = (Request<?, EthBlockNumber>) mock(Request.class);
-        EthBlockNumber ethBlockNumber = mock(EthBlockNumber.class);
-
-        doReturn(request).when(web3j).ethBlockNumber();
-        when(request.send()).thenReturn(ethBlockNumber);
-        when(ethBlockNumber.getBlockNumber()).thenReturn(BigInteger.valueOf(number));
-    }
-
-    private void mockBlockRequest(boolean fullTransactionObjects, EthBlock.Block... blocks) throws IOException {
-        @SuppressWarnings("unchecked")
-        Request<?, EthBlock> request = (Request<?, EthBlock>) mock(Request.class);
-        EthBlock[] responses = new EthBlock[blocks.length];
-
-        for (int i = 0; i < blocks.length; i++) {
-            responses[i] = mock(EthBlock.class);
-            when(responses[i].getBlock()).thenReturn(blocks[i]);
-        }
-
-        doReturn(request).when(web3j).ethGetBlockByNumber(
-                any(DefaultBlockParameter.class),
-                eq(fullTransactionObjects)
-        );
-        if (responses.length == 1) {
-            when(request.send()).thenReturn(responses[0]);
-        } else {
-            EthBlock[] nextResponses = Arrays.copyOfRange(responses, 1, responses.length);
-            when(request.send()).thenReturn(responses[0], nextResponses);
-        }
-    }
-
-    private EthBlock.Block mockBlock(
-            long number,
-            String hash,
-            List<EthBlock.TransactionResult> transactions,
-            BigInteger baseFee
-    ) {
-        EthBlock.Block block = mock(EthBlock.Block.class);
-
-        when(block.getNumber()).thenReturn(BigInteger.valueOf(number));
-        when(block.getHash()).thenReturn(hash);
-        when(block.getTimestamp()).thenReturn(BigInteger.valueOf(1710000000L + number));
-        when(block.getTransactions()).thenReturn(transactions);
-        when(block.getGasUsed()).thenReturn(BigInteger.valueOf(100000 + number));
-        when(block.getParentHash()).thenReturn("0xparent" + number);
-        when(block.getMiner()).thenReturn("0xminer");
-        when(block.getNonceRaw()).thenReturn("0xnonce");
-        when(block.getSize()).thenReturn(BigInteger.valueOf(900 + number));
-        when(block.getGasLimit()).thenReturn(BigInteger.valueOf(30000000));
-        when(block.getBaseFeePerGas()).thenReturn(baseFee);
-
-        return block;
-    }
-
-    private EthBlock.TransactionObject mockTransaction(
-            String hash,
-            String from,
-            String to,
-            long value,
-            long gas,
-            long gasPrice
-    ) {
-        EthBlock.TransactionObject tx = mock(EthBlock.TransactionObject.class);
-
-        when(tx.getHash()).thenReturn(hash);
-        when(tx.getFrom()).thenReturn(from);
-        when(tx.getTo()).thenReturn(to);
-        when(tx.getValue()).thenReturn(BigInteger.valueOf(value));
-        when(tx.getGas()).thenReturn(BigInteger.valueOf(gas));
-        when(tx.getGasPrice()).thenReturn(BigInteger.valueOf(gasPrice));
-
-        return tx;
     }
 }
