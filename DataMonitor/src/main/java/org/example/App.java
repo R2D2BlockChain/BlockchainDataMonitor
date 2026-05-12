@@ -7,6 +7,7 @@ import com.sun.net.httpserver.HttpServer;
 import org.example.api.RecentBlocksJsonWriter;
 import org.example.api.RecentBlocksResponse;
 import org.example.client.BlockchainClient;
+import org.example.http.IpRateLimiter;
 import org.example.reporting.SessionMetrics;
 import org.example.reporting.ShutdownReportWriter;
 import org.example.service.BlockService;
@@ -18,6 +19,7 @@ import java.net.InetSocketAddress;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.OptionalInt;
 
 public class App {
 
@@ -43,14 +45,49 @@ public class App {
             }
         }, "shutdown-report-writer"));
 
+        IpRateLimiter rateLimiter = IpRateLimiter.fromEnvironment();
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
-        server.createContext("/health", new HealthHandler());
-        server.createContext("/api/blocks/recent", new RecentBlocksHandler(blockService));
+        server.createContext("/health", new RateLimitedHandler(rateLimiter, new HealthHandler()));
+        server.createContext(
+                "/api/blocks/recent",
+                new RateLimitedHandler(rateLimiter, new RecentBlocksHandler(blockService)));
         server.setExecutor(null);
         server.start();
 
         System.out.println("Blockchain API running on http://localhost:" + port);
         System.out.println("RPC source: " + rpcUrl);
+    }
+
+    private static String clientKey(HttpExchange exchange) {
+        InetSocketAddress remote = exchange.getRemoteAddress();
+        if (remote == null || remote.getAddress() == null) {
+            return "unknown";
+        }
+        return remote.getAddress().getHostAddress();
+    }
+
+    private static class RateLimitedHandler implements HttpHandler {
+        private final IpRateLimiter rateLimiter;
+        private final HttpHandler delegate;
+
+        private RateLimitedHandler(IpRateLimiter rateLimiter, HttpHandler delegate) {
+            this.rateLimiter = rateLimiter;
+            this.delegate = delegate;
+        }
+
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                delegate.handle(exchange);
+                return;
+            }
+            OptionalInt retryAfterSec = rateLimiter.checkAndRecord(clientKey(exchange));
+            if (retryAfterSec.isPresent()) {
+                sendRateLimited(exchange, retryAfterSec.getAsInt());
+                return;
+            }
+            delegate.handle(exchange);
+        }
     }
 
     private static class HealthHandler implements HttpHandler {
@@ -116,6 +153,23 @@ public class App {
         exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, OPTIONS");
         exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type");
         exchange.sendResponseHeaders(statusCode, bytes.length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(bytes);
+        } finally {
+            exchange.close();
+        }
+    }
+
+    private static void sendRateLimited(HttpExchange exchange, int retryAfterSeconds) throws IOException {
+        String body = "{\"error\":\"Too many requests\",\"retryAfterSeconds\":" + retryAfterSeconds + "}";
+        byte[] bytes = body.getBytes("UTF-8");
+        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, OPTIONS");
+        exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type");
+        exchange.getResponseHeaders().set("Access-Control-Expose-Headers", "Retry-After");
+        exchange.getResponseHeaders().set("Retry-After", Integer.toString(retryAfterSeconds));
+        exchange.sendResponseHeaders(429, bytes.length);
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(bytes);
         } finally {
