@@ -124,9 +124,10 @@ public class BlockService {
             }
         }
 
+        String baseFeeRaw = block.getBaseFeePerGasRaw();
         String baseFee;
 
-        if (block.getBaseFeePerGas() == null) {
+        if (baseFeeRaw == null || baseFeeRaw.isEmpty()) {
             baseFee = null;
         } else {
             baseFee = block.getBaseFeePerGas().toString();
