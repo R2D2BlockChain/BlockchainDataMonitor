@@ -1,0 +1,6 @@
+Raport sesji DataMonitor
+Data zapisu: 2026-05-12T21:31:48.1293698
+
+Łączna liczba przetworzonych bloków: 220
+Łączna liczba przetworzonych transakcji: 49452
+Łączne zużycie gazu (suma gasUsed, bloki podstawowe): 6048768598

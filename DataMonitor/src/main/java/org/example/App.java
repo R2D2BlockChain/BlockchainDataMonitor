@@ -7,11 +7,15 @@ import com.sun.net.httpserver.HttpServer;
 import org.example.api.RecentBlocksJsonWriter;
 import org.example.api.RecentBlocksResponse;
 import org.example.client.BlockchainClient;
+import org.example.reporting.SessionMetrics;
+import org.example.reporting.ShutdownReportWriter;
 import org.example.service.BlockService;
 import org.web3j.protocol.Web3j;
+
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -25,7 +29,19 @@ public class App {
 
         BlockchainClient client = new BlockchainClient(rpcUrl);
         Web3j web3j = client.getWeb3j();
-        BlockService blockService = new BlockService(web3j);
+        SessionMetrics sessionMetrics = new SessionMetrics();
+        BlockService blockService = new BlockService(web3j, sessionMetrics);
+
+        Path reportsDir = ShutdownReportWriter.resolveReportsDirectory();
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                Path written = ShutdownReportWriter.writeReport(reportsDir, sessionMetrics);
+                System.out.println("Zapisano raport sesji: " + written);
+            } catch (IOException e) {
+                System.err.println("Nie udalo sie zapisac raportu sesji: " + e.getMessage());
+                e.printStackTrace(System.err);
+            }
+        }, "shutdown-report-writer"));
 
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
         server.createContext("/health", new HealthHandler());
