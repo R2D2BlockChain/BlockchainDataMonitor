@@ -1,6 +1,7 @@
 package org.example.service;
 
 import org.example.api.RecentBlocksResponse;
+import org.example.reporting.SessionMetrics;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.methods.response.EthBlock;
 
@@ -12,9 +13,11 @@ import java.util.List;
 public class BlockService {
 
     private final Web3j web3j;
+    private final SessionMetrics sessionMetrics;
 
-    public BlockService(Web3j web3j) {
+    public BlockService(Web3j web3j, SessionMetrics sessionMetrics) {
         this.web3j = web3j;
+        this.sessionMetrics = sessionMetrics;
     }
 
     public BigInteger getLatestBlock() throws IOException, InterruptedException {
@@ -88,7 +91,13 @@ public class BlockService {
             detailedBlocks.add(mapDetailedBlock(detailedBlock));
         }
 
-        return new RecentBlocksResponse(latest.longValue(), basicBlocks, detailedBlocks);
+        RecentBlocksResponse response = new RecentBlocksResponse(
+                latest.longValue(),
+                basicBlocks,
+                detailedBlocks
+        );
+        sessionMetrics.recordSuccessfulRecentBlocks(basicBlocks, detailedBlocks);
+        return response;
     }
 
     private RecentBlocksResponse.BasicBlockInfo mapBasicBlock(EthBlock.Block block) throws IOException, InterruptedException {

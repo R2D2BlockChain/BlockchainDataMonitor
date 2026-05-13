@@ -1,6 +1,7 @@
 package org.example.service;
 
 import org.example.api.RecentBlocksResponse;
+import org.example.reporting.SessionMetrics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.web3j.protocol.Web3j;
@@ -40,7 +41,7 @@ class BlockServiceTest {
             Class<?> responseType = invocation.getArgument(1);
             return responseType.cast(rpcResponses.remove());
         });
-        blockService = new BlockService(Web3j.build(web3jService));
+        blockService = new BlockService(Web3j.build(web3jService), new SessionMetrics());
     }
 
     @Test
